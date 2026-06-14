@@ -77,7 +77,7 @@ async function getTextContent(itemId) {
   return textRes.data;
 }
 
-// ─── Gemini: generate plain-English article ───────────────────────────────────
+// ─── Gemini: generate plain-English article (with retry on 503) ───────────────
 
 async function generateArticle(reportText, metadata) {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
@@ -133,8 +133,24 @@ Here is the full report text:
 ${reportText}
 `;
 
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+  // Retry up to 3 times on 503 (Gemini high demand) with 30s wait between attempts
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 30000;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (err) {
+      const is503 = err.status === 503 || (err.message && err.message.includes('503'));
+      if (is503 && attempt < MAX_RETRIES) {
+        console.log(`  Gemini 503 on attempt ${attempt}/${MAX_RETRIES}. Waiting 30s before retry...`);
+        await sleep(RETRY_DELAY_MS);
+      } else {
+        throw err; // out of retries, or a different error — let the caller handle it
+      }
+    }
+  }
 }
 
 // ─── HTML: convert markdown to HTML ──────────────────────────────────────────
@@ -216,7 +232,7 @@ async function main() {
 
   let newCount = 0;
   let page = 0;
-  const pageSize = 20; // fetch 20 at a time from the API to find unprocessed ones
+  const pageSize = 20;
 
   while (newCount < BATCH_SIZE) {
     console.log(`\nFetching API page ${page}...`);
@@ -252,42 +268,46 @@ async function main() {
         sourceUrl: meta['dc.identifier.uri']?.[0]?.value || 'https://elibrary.sansad.in'
       };
 
-      // Step 1: fetch full text
-      console.log('  Fetching text content...');
-      const text = await getTextContent(uuid);
-      if (!text) {
-        console.log('  No text found — skipping this report.');
-        // Mark as processed so we don't keep retrying a report with no text
+      try {
+        // Step 1: fetch full text
+        console.log('  Fetching text content...');
+        const text = await getTextContent(uuid);
+        if (!text) {
+          console.log('  No text found — skipping this report.');
+          processed.add(uuid);
+          saveProcessed(processed);
+          continue;
+        }
+        console.log(`  Text length: ${text.length} characters`);
+
+        // Step 2: call Gemini (retry logic is inside generateArticle)
+        console.log('  Calling Gemini...');
+        const article = await generateArticle(text, metadata);
+
+        // Step 3: save HTML
+        saveHtmlPage(article, metadata);
+
+        // Step 4: mark as processed immediately (crash-safe)
         processed.add(uuid);
         saveProcessed(processed);
-        continue;
-      }
-      console.log(`  Text length: ${text.length} characters`);
+        newCount++;
 
-      // Step 2: call Gemini
-      console.log('  Calling Gemini...');
-      const article = await generateArticle(text, metadata);
+        console.log(`  Done (${newCount}/${BATCH_SIZE} new reports this run)`);
 
-      // Step 3: save HTML
-      saveHtmlPage(article, metadata);
-
-      // Step 4: mark as processed immediately (crash-safe)
-      processed.add(uuid);
-      saveProcessed(processed);
-      newCount++;
-
-      console.log(`  Done (${newCount}/${BATCH_SIZE} new reports this run)`);
-
-      // Step 5: wait before next Gemini call (rate limiting)
-      if (newCount < BATCH_SIZE) {
-        console.log(`  Waiting ${DELAY_MS / 1000}s before next report (rate limit)...`);
-        await sleep(DELAY_MS);
+        // Step 5: wait before next Gemini call (rate limiting)
+        if (newCount < BATCH_SIZE) {
+          console.log(`  Waiting ${DELAY_MS / 1000}s before next report (rate limit)...`);
+          await sleep(DELAY_MS);
+        }
+      } catch (err) {
+        console.log(`  ERROR processing "${metadata.title}": ${err.message}`);
+        console.log('  Skipping this report and continuing to next...');
+        // Do NOT add to processed — we will retry it on the next run
       }
     }
 
     page++;
 
-    // Safety: if we've gone through all available pages
     if (page * pageSize >= total) {
       console.log('\nAll available reports have been processed.');
       break;
