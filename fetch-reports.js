@@ -125,7 +125,7 @@ function saveHtmlPage(article, metadata) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${metadata.title} — Sansad in Plain Language</title>
+  <title>${metadata.title} — Sansad for Citizens</title>
   <style>
     body {
       font-family: Georgia, serif;

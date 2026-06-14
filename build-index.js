@@ -15,7 +15,7 @@ function buildIndex() {
   const reports = files.map(file => {
     const content = fs.readFileSync(path.join(reportsDir, file), 'utf8');
 
-    const titleMatch = content.match(/<title>(.+?) — Sansad in Plain Language<\/title>/);
+    const titleMatch = content.match(/<title>(.+?) — Sansad for Citizens<\/title>/);
     const metaMatch = content.match(/<div class="meta">\s*(.+?)\s*<\/div>/s);
     const h2Match = content.match(/<h2>(.+?)<\/h2>/);
 
@@ -38,7 +38,7 @@ function buildIndex() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sansad in Plain Language</title>
+  <title>Sansad for Citizens</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -136,7 +136,7 @@ function buildIndex() {
 </head>
 <body>
   <header>
-    <h1>Sansad in Plain Language</h1>
+    <h1>Sansad for Citizens</h1>
     <p>Parliamentary committee reports, explained in plain English for every Indian citizen.</p>
     <p class="notice">Summaries are AI-generated. Always read the original report before drawing conclusions.</p>
   </header>
